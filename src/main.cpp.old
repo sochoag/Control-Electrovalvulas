@@ -1,0 +1,207 @@
+// IMPORTACIONES
+#include <Wire.h>
+#include <Adafruit_GFX.h>
+#include <Adafruit_SSD1306.h>
+#include <Adafruit_I2CDevice.h>
+#include <EEPROM.h>
+#include "countdown.h"
+
+// INSTANCIAS
+Adafruit_SSD1306 oled(128, 64, &Wire);
+Countdown cuentaApertura("Apertura");
+Countdown cuentaCierre("Cierre");
+
+// VARIABLES GLOBALES
+byte DT = 2, CLK = 4, SW = 3, rele = A0;
+byte valor[7] = {0,0,0,0,0,0,0};
+byte indice = 0;
+unsigned int debounceTime = 10;
+bool programmed = false;
+unsigned long triggeredEncoderTime = 0;
+unsigned long triggeredPulsanteTime = 0;
+
+// FUNCIONES
+void(* resetFunc) (void) = 0;
+
+void pulsante()
+{
+  if((millis() - triggeredPulsanteTime) > (debounceTime*15))
+  {
+    triggeredPulsanteTime = millis();
+    if(!programmed)
+    {
+      indice++;
+      if(indice > 6)
+      {
+        indice = 0;
+      }
+    }
+    else
+    {
+      digitalWrite(rele,0);
+      resetFunc();
+    }
+  }
+}
+
+void encoder()
+{
+  if((millis() - triggeredEncoderTime) > debounceTime)
+  {
+    triggeredEncoderTime = millis();
+    boolean clkState = digitalRead(CLK);
+    byte limite = (indice == 3) | (indice == 0) ? 23 : (indice == 6 ? 1 : 59);
+    if(clkState)
+    {
+      valor[indice]++;
+      if(valor[indice]>limite)
+      {
+        valor[indice]=0;
+      }
+    }
+    else
+    {
+      valor[indice]--;
+      if(valor[indice]>limite)
+      {
+        valor[indice]=limite;
+      }
+    }
+  }
+}
+
+void pantallaPrincipal()
+{
+  oled.clearDisplay(); 
+  oled.setTextSize(1);     
+  oled.setTextColor(WHITE, BLACK);
+  oled.setCursor(20, 00); 
+  oled.println("Tiempo apertura");
+  oled.setCursor(41, 10);
+  oled.println("00:00:00");
+  oled.setCursor(41,10);
+  oled.print(valor[0]<=9 ? "0"+String(valor[0]) : valor[0]);
+  oled.setCursor(59,10);
+  oled.print(valor[1]<=9 ? "0"+String(valor[1]) : valor[1]);
+  oled.setCursor(77,10);
+  oled.print(valor[2]<=9 ? "0"+String(valor[2]) : valor[2]);
+  oled.setCursor(26, 25);
+  oled.println("Tiempo cierre");
+  oled.setCursor(41, 35);
+  oled.println("00:00:00");
+  oled.setCursor(41,35);
+  oled.print(valor[3]<=9 ? "0"+String(valor[3]) : valor[3]);
+  oled.setCursor(59,35);
+  oled.print(valor[4]<=9 ? "0"+String(valor[4]) : valor[4]);
+  oled.setCursor(77,35);
+  oled.print(valor[5]<=9 ? "0"+String(valor[5]) : valor[5]);
+  oled.setCursor(47,52);
+  oled.println("Config");
+  oled.drawRect(43,49,44,14,1);
+  oled.display();    
+}
+
+void actualizarTiempo()
+{
+  oled.setCursor(41,10);
+  oled.print(cuentaApertura.hours<=9 ? "0"+String(cuentaApertura.hours) : cuentaApertura.hours);
+  oled.setCursor(59,10);
+  oled.print(cuentaApertura.minutes<=9 ? "0"+String(cuentaApertura.minutes) : cuentaApertura.minutes);
+  oled.setCursor(77,10);
+  oled.print(cuentaApertura.seconds<=9 ? "0"+String(cuentaApertura.seconds) : cuentaApertura.seconds);
+  oled.setCursor(41,35);
+  oled.print(cuentaCierre.hours<=9 ? "0"+String(cuentaCierre.hours) : cuentaCierre.hours);
+  oled.setCursor(59,35);
+  oled.print(cuentaCierre.minutes<=9 ? "0"+String(cuentaCierre.minutes) : cuentaCierre.minutes);
+  oled.setCursor(77,35);
+  oled.print(cuentaCierre.seconds<=9 ? "0"+String(cuentaCierre.seconds) : cuentaCierre.seconds);
+  oled.display();
+}
+
+bool menu()
+{
+  while((indice != 0) | (valor[6] != 1))
+  {
+    oled.writeFillRect(44,50,42,12,0);
+    oled.setCursor(47,52);
+    oled.print(valor[6] == 0 ? "Config": "Inicio");
+    oled.writeFastHLine(0,18,128,0);
+    oled.writeFastHLine(0,43,128,0);
+    switch(indice)
+    {
+      case 0: oled.writeFastHLine(41,18,12,1); oled.setCursor(41,10); break;
+      case 1: oled.writeFastHLine(59,18,12,1); oled.setCursor(59,10); break;
+      case 2: oled.writeFastHLine(77,18,12,1); oled.setCursor(77,10); break;
+      case 3: oled.writeFastHLine(41,43,12,1); oled.setCursor(41,35); break;
+      case 4: oled.writeFastHLine(59,43,12,1); oled.setCursor(59,35); break;
+      case 5: oled.writeFastHLine(77,43,12,1); oled.setCursor(77,35); break;
+      case 6: oled.writeFillRect(43,49,44,14,1); oled.setCursor(47,52); break;
+    }
+    if(indice != 6)
+    {
+
+      oled.print(valor[indice]<=9 ? "0"+String(valor[indice]) : valor[indice]);
+    }
+    else
+    {
+      oled.setTextColor(0,1);
+      oled.print(valor[indice] == 0 ? "Config": "Inicio");
+      oled.setTextColor(1,0);
+    }
+    oled.display();
+  }
+  for(int i=0; i < 6; i++)
+  {
+    EEPROM.put(i,valor[i]);
+  }
+  EEPROM.put(6,6);
+  return true;
+}
+
+void setup() 
+{
+  pinMode(rele, OUTPUT);
+  pinMode(CLK, INPUT);
+  pinMode(DT, INPUT);
+  pinMode(SW, INPUT_PULLUP);
+
+  attachInterrupt(digitalPinToInterrupt(DT), encoder, LOW);
+  attachInterrupt(digitalPinToInterrupt(SW), pulsante,FALLING);
+
+  for(int i=0; i<6; i++)
+  {
+    EEPROM.get(i, valor[i]);
+  }
+  EEPROM.get(6, indice);
+
+  oled.begin(SSD1306_SWITCHCAPVCC, 0x3C);
+  oled.setRotation(2);
+  pantallaPrincipal();
+
+  programmed = menu();
+
+  oled.setTextColor(0,1);
+  oled.setCursor(47,52);
+  oled.println("      ");
+  oled.setCursor(55,52);
+  oled.println("Fin");
+  oled.setTextColor(1,0);
+
+  cuentaApertura.setCountdown(valor[0],valor[1],valor[2]);
+  cuentaCierre.setCountdown(valor[3],valor[4],valor[5]);
+}
+
+void loop() 
+{
+  if(cuentaApertura.startCount())
+  {
+    digitalWrite(rele,HIGH);
+    if(cuentaCierre.startCount())
+    {
+      digitalWrite(rele,LOW);
+      cuentaApertura.restart();
+      cuentaCierre.restart();    
+    }
+  }
+  actualizarTiempo();
+}
